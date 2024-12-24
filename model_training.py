@@ -62,7 +62,7 @@ def main():
     fig.plot()
     # plt.savefig('confusion_matrix.png')
     metrics_df = save_metrics(vectorizer, model)
-    metrics_df.sort_values(['class_0_probs', 'class_0_probs'], ascending=False).to_csv('metrics.csv', index=False)
+    metrics_df.sort_values(['class_0_probs', 'class_1_probs'], ascending=False).to_csv('metrics.csv', index=False)
 
     with open("obj/model.pkl", "wb") as f:
         joblib.dump(model, f)
