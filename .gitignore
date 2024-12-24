@@ -29,6 +29,7 @@ env/
 
 # Data files
 *.csv
+csv/
 *.xls
 *.xlsx
 *.db
