@@ -1,4 +1,5 @@
 import os
+from multiprocessing import Pool
 from typing import List, Tuple
 from dotenv import load_dotenv
 from sklearn.feature_extraction.text import CountVectorizer
@@ -47,7 +48,7 @@ def check_email():
     try:
         mail = imaplib.IMAP4_SSL(IMAP_SERVER)
         mail.login(EMAIL, PASSWORD)
-        mail.select("inbox")
+        mail.select("inbox", readonly=True)
         _, messages = mail.search(None, 'UNSEEN')
         logging.info(f"Fetched messages: {messages}")
         mail_ids = messages[0].split()
@@ -64,9 +65,13 @@ def check_email():
         "spam_details": []  # List to store details of spam emails
     }
     
-    for num in mail_ids:
-        _, msg = mail.fetch(num, '(RFC822)')
-        for response in msg:
+    email_texts = []
+    email_data_list = []
+    spam_ids = []
+    
+    if mail_ids:
+        _, msgs = mail.fetch(','.join(id.decode() for id in mail_ids), '(RFC822)')
+        for mail_id, response in zip(mail_ids, msgs):
             if isinstance(response, tuple):
                 raw_email = response[1]
                 msg = email.message_from_bytes(raw_email)
@@ -81,33 +86,45 @@ def check_email():
                     subject = "No Subject"
 
                 body = extract_email_body(msg)
-                sender = msg["From"]
-                date_received = msg["Date"]
+                email_texts.append(f"{subject} {body}")
                 
-                email_data = EmailText(subject=subject, body=body)
-                prediction = classify_email(email_data)
-                
-                if prediction['prediction'] == 'spam':
-                    mail.store(num, '+X-GM-LABELS', '\\Spam')
+                email_data_list.append({
+                    "num": mail_id.decode(),
+                    "subject": subject,
+                    "sender": msg["From"],
+                    "date": msg["Date"]
+                })
+    
+    if email_texts:
+        try:
+            with Pool() as pool:
+                cleaned_texts = pool.map(clean_text, email_texts)
+            vectors = cv.transform(cleaned_texts)
+            predictions = model.predict_proba(vectors)
+            
+            for i, prediction in enumerate(predictions):
+                email_data = email_data_list[i]
+                if prediction[1] > 0.5:
+                    spam_ids.append(email_data['num'])
                     classified["spam"] += 1
-                    spam_confidence = float(prediction['confidence'][0])
-                    
-                    # Store spam details
                     spam_info = {
-                        "subject": subject,
-                        "sender": sender,
-                        "date": date_received,
-                        "confidence": spam_confidence
+                        "subject": email_data["subject"],
+                        "sender": email_data["sender"],
+                        "date": email_data["date"],
+                        "confidence": prediction[1]
                     }
                     classified["spam_details"].append(spam_info)
-                    
-                    # Log spam details
-                    log_spam_email(subject, sender, date_received, spam_confidence)
+                    log_spam_email(email_data['subject'], email_data['sender'], email_data['date'], prediction[1])
                 else:
                     classified["ham"] += 1
+            
+            if spam_ids:
+                mail.store(','.join(spam_ids), '+X-GM-LABELS', '\\Spam')
+        except Exception as e:
+            logging.error(f"Error during batch email classification: {e}")
+            return {"error": "Failed during batch processing."}
     
     return classified
-
 
 def classify_email(email):
     try:

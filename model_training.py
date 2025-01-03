@@ -4,22 +4,21 @@ import joblib
 import matplotlib.pyplot as plt
 from pandarallel import pandarallel 
 import numpy as np
-from scipy import sparse
+from sklearn.decomposition import TruncatedSVD
 from nltk.corpus import stopwords
-from nltk.stem import PorterStemmer
+from nltk.stem import SnowballStemmer
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.naive_bayes import MultinomialNB, GaussianNB
 from sklearn import metrics
 
 def clean_text(text):
-    text = re.sub(r'[^a-zA-Z\s]', '', text)
-    stemmer = PorterStemmer()
+    stemmer = SnowballStemmer("english")
     stop_words = set(stopwords.words('english'))
-    words = text.split()
-    filtered_words = [stemmer.stem(word.lower()) for word in words if word.lower() not in stop_words and word.isalpha()]
-    return ' '.join(filtered_words)
+    text = re.sub(r'[^a-zA-Z\s]', '', text)
+    words = [stemmer.stem(word.lower()) for word in text.split() if word.lower() not in stop_words]
+    return ' '.join(words)
 
 def save_metrics(cv: CountVectorizer, model: MultinomialNB):
     metric_df = pd.DataFrame()
@@ -40,13 +39,12 @@ def main():
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-    vectorizer = CountVectorizer(min_df=2, max_df=0.8, ngram_range=(1, 2), stop_words='english', lowercase=True)
-    vectorizer.fit(X)
-    X_train_vectorized = vectorizer.transform(X_train)
+    vectorizer = CountVectorizer(min_df=2, max_df=0.9, ngram_range=(1, 2), stop_words='english', lowercase=True)
+    X_train_vectorized = vectorizer.fit_transform(X_train)
     X_test_vectorized = vectorizer.transform(X_test)
 
-    # Create a params grid for MultinomialNB, then select the best parameters using GridSearchCV
-    params = {'alpha': [0.1, 0.5, 1.0, 1.5, 2.0]}
+    
+    params = {'alpha': np.arange(0.01, 2.0, 0.1, dtype=np.float32)}
     grid = GridSearchCV(MultinomialNB(), params, cv=5, n_jobs=-1, verbose=1, scoring='f1_macro')
     grid.fit(X_train_vectorized, y_train)
     print(f"Best params: {grid.best_params_}")
@@ -59,7 +57,7 @@ def main():
     preds = model.predict(X_test_vectorized)
     print(metrics.classification_report(y_test, preds))
     cm = metrics.confusion_matrix(y_test, preds)
-    fig = metrics.ConfusionMatrixDisplay(cm)
+    fig = metrics.ConfusionMatrixDisplay.from_estimator(model, X_test_vectorized, y_test)
     fig.plot()
     plt.savefig('confusion_matrix.png')
     metrics_df = save_metrics(vectorizer, model)
