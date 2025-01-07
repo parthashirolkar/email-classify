@@ -48,7 +48,7 @@ def check_email():
     try:
         mail = imaplib.IMAP4_SSL(IMAP_SERVER)
         mail.login(EMAIL, PASSWORD)
-        mail.select("inbox", readonly=True)
+        mail.select("inbox")
         _, messages = mail.search(None, 'UNSEEN')
         logging.info(f"Fetched messages: {messages}")
         mail_ids = messages[0].split()
